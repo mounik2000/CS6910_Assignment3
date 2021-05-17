@@ -99,6 +99,9 @@ def do_run(config):
   tel_word_list = np.array(tel_word_list)
   [decoder_model,encoder_model,model] = get_model(config,eng_vocab_length,tel_vocab_length,len(eng_words))
   output_list = []
+  model2 = Sequential()
+  model2.add(Embedding(eng_vocab_length,config.input_size,input_length=max_eng_len))
+  model2.compile('rmsprop','categorical_crossentropy')
   one_hot = []
   for word in eng_words:
     i = 0
@@ -111,7 +114,7 @@ def do_run(config):
       i+=1
     one_hot.append(L)
   one_hot = np.array(one_hot)
-  word_embed = one_hot
+  word_embed = model2.predict(one_hot)
   for word in tel_words:
     i = 0
     L = np.zeros((max_tel_len,tel_vocab_length))
@@ -305,3 +308,4 @@ def get_model(config,eng_vocab_length,tel_vocab_length,num_words):
   decoder_outputs = decoder_dense(decoder_outputs)
   decoder_model = keras.Model([decoder_inputs,output1] + decoder_ip_states, [decoder_outputs,decoder_states])
   return [decoder_model,encoder_model,model]
+
