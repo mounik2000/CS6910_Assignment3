@@ -374,9 +374,71 @@ def get_model(config,eng_vocab_length,tel_vocab_length,num_words):
     if config.cell == 'RNN':
       outputs, h = (rnn_dec[i])(outputs,initial_state = decoder_ip_states[min(i,s-1)])
       decoder_states+=[h]
-  decoder_combined_context = outputs
+  
+  if config.attention == 1:
+    attention = dot([outputs, output1], axes=[2, 2])
+    attention = Activation('softmax')(attention)
+    context = dot([attention, output1], axes=[2,1])
+    context = bn(context)
+    decoder_combined_context = concatenate([context, outputs])
+  else:
+    decoder_combined_context = outputs
   decoder_outputs = dropout(decoder_combined_context)
   decoder_outputs = decoder_dense(decoder_outputs)
   decoder_model = keras.Model([decoder_inputs,output1] + decoder_ip_states, [decoder_outputs,decoder_states])
   return [decoder_model,encoder_model,model]
+
+
+sweep_config = {
+    'method' : 'random',
+    'metric': {
+      'name': 'val_word_accuracy',
+      'goal': 'maximize'   
+    },
+    'parameters': {
+        'attention' : {
+            'values' : [0]
+        },
+        'input_size' : {
+            'values' : [8,16,32,64,128]
+        },
+        'hidden_size' : {
+            'values' : [32,64,128,256]
+        },
+        'cell' : {
+            'values' : ['LSTM','GRU','RNN']
+        },
+        'decoder_layers' : {
+            'values' : [1,2,3]
+        },
+        'encoder_layers' : {
+            'values' : [1,2,3]
+        },
+        'dropout' : {
+            'values' : [0.2,0.3,0.4]
+        },
+        'beam_size' : {
+            'values' : [1,2,3]
+        }
+    },
+}
+
+sweep_id = wandb.sweep(sweep_config, entity="mounik2000", project="Assignment 3 No attention")
+
+def sweep_train():
+  config_defaults = {
+        'dropout' : 0.2,
+        'beam_size': 1,
+        'encoder_layers': 1,
+        'cell': 'RNN',
+        'decoder_layers' : 1,
+        'input_size' : 64,
+        'attention' : 0,
+        'hidden_size': 128
+  }
+  run = wandb.init(config = config_defaults)
+  config = wandb.config
+  do_run(config)
+
+wandb.agent(sweep_id, sweep_train)
 
