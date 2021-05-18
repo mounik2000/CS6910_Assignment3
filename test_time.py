@@ -20,6 +20,8 @@ from matplotlib import font_manager as fm, rcParams
 import os
 import pandas as pd
 import matplotlib
+
+
 def do_run(config):
   test_path = '/content/drive/MyDrive/te.translit.sampled.test.tsv'
   val_path = '/content/drive/MyDrive/te.translit.sampled.dev.tsv'
@@ -246,192 +248,65 @@ def predict(model,word_embed,tel_word_list,num_dict_telugu,eng_words,config,list
     encoder_states = decoder_states
     target_seq[:,0] = decoder_outputs[:,0]
     output_list[:,i] = decoder_outputs[:,0]
+  get_heatmap(model,word_embed,tel_word_list,num_dict_telugu,eng_words,config,list_L,char_dict_english,output_list,tel_words)
   return output_list
 
-def calc_acc(beam_size,output,one_hot2):
-  max_acc = 0.0
-  max_output = []
-  for beam in range(beam_size):
-    Result = []
-    for i in range(len(output)):
-      seq = beam_search_decoder(output[i], beam_size)
-      Result.append(seq[beam][0])
-    acc = 0.0
-    for i in range(one_hot2.shape[0]):
-      acc2 = 0.0
-      c = 0
-      for j in range(one_hot2.shape[1]):
-        p = Result[i][j]
-        if (p == one_hot2[i][j] and p > 0) :
-          acc2+= 1
-        if (not (one_hot2[i][j] == 0)):
-          c+=1
-      acc2/=c
-      acc+=acc2
-    acc /= one_hot2.shape[0]
-    if max_acc <= acc:
-      max_acc = acc
-      max_output = Result
-  print("acc = "+str(max_acc))
-  max_acc2 = 0.0
-  max_output2 = []
-  for beam in range(beam_size):
-    Result = []
-    for i in range(len(output)):
-      seq = beam_search_decoder(output[i], beam_size)
-      Result.append(seq[beam][0])
-    acc = 0.0
-    for i in range(one_hot2.shape[0]):
-      c = 0
-      for j in range(one_hot2.shape[1]):
-        p = Result[i][j]
-        if (p == one_hot2[i][j]) :
-          c+=1
-      if (c == one_hot2.shape[1]):
-        acc+=1
-    acc /= one_hot2.shape[0]
-    if max_acc2 <= acc:
-      max_acc2 = acc
-      max_output2 = Result
-  print("word acc = "+str(max_acc2))
-  return [max_acc2,max_output2]
+def plot_attention(attention,predicted_sentence,sentence,it):
+  fname='/content/drive/MyDrive/Gidugu.ttf'
+  myfont=fm.FontProperties(fname=fname)
+  fig = plt.figure(figsize=(10, 10))
+  ax = fig.add_subplot(1, 1, 1)
+  ax.matshow(attention, cmap='gray')
+  fontdict = {'fontsize': 14,'fontweight' : 'bold' }
+  ax.set_xticklabels([''] + sentence, fontdict=fontdict, rotation=90)
+  ax.set_yticklabels([''] + predicted_sentence, fontdict=fontdict,fontproperties = myfont)
+  ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+  ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
+  plt.savefig('Heatmap of Input '+str(it+1)+'.png')
 
 
-# Directly taken from https://machinelearningmastery.com/beam-search-decoder-natural-language-processing/
-def beam_search_decoder(data, k):
-	sequences = [[list(), 0.0]]
-	# walk over each step in sequence
-	for row in data:
-		all_candidates = list()
-		# expand each current candidate
-		for i in range(len(sequences)):
-			seq, score = sequences[i]
-			for j in range(len(row)):
-				if (row[j]<=0):
-					candidate = [seq + [j], score +50]
-				else:
-					candidate = [seq + [j], score - math.log(row[j])]
-				all_candidates.append(candidate)
-		# order all candidates by score
-		ordered = sorted(all_candidates, key=lambda tup:tup[1])
-		# select k best
-		sequences = ordered[:k]
-	return sequences
-
-
-
-
-
-def get_acc(model,val_path,config,model2,details,list_L):
-  [char_dict_telugu,char_dict_english,max_tel_len,max_eng_len,tel_vocab_length,eng_vocab_length,num_dict_telugu,config] = details
-  fd = open(val_path, 'r')
-  num1 = 1
-  num2 = 1
-  tel_words = []
-  eng_words = []
-  while True:
-      string = fd.readline()
-      if not string:
-          break
-      else:
-        l = string.split()
-        tel_word = l[0]
-        eng_word = l[1]
-        tel_word = '\t'+tel_word+'\t'
-        eng_word = '\t'+eng_word+'\t'
-        tel_words.append(tel_word)
-        eng_words.append(eng_word)
-  fd.close()
-  tel_word_list = []
-  for word in tel_words:
-    i = 0
-    L = np.zeros((max_tel_len,tel_vocab_length))
-    for char in word:
-      L[i][char_dict_telugu[char]] = 1
-      i+=1
-    while i < max_tel_len:
-      L[i][char_dict_telugu[" "]] = 1
-      i+=1
-    tel_word_list.append(L)
-  tel_word_list = np.array(tel_word_list)
-  one_hot = []
-  for word in eng_words:
-    i = 0
-    L = np.zeros(max_eng_len)
-    for char in word:
-      L[i] = char_dict_english[char]
-      i+=1
-    while i < max_eng_len:
-      L[i] = char_dict_english[" "]
-      i+=1
-    one_hot.append(L)
-  one_hot = np.array(one_hot)
-  word_embed = model2.predict(one_hot)
-  one_hot2 = []
-  for word in tel_words:
-    i = 0
-    L = np.zeros(max_tel_len)
-    for char in word:
-      L[i] = char_dict_telugu[char]
-      i+=1
-    while i < max_tel_len:
-      L[i] = char_dict_telugu[" "]
-      i+=1
-    one_hot2.append(L)
-  one_hot2 = np.array(one_hot2)
-  output = predict(model,word_embed,tel_word_list,num_dict_telugu,eng_words,config,list_L,char_dict_english,tel_words)
-  i = 0
-  for j in range(len(output)):
-    L = output[j]
-    lis = [tel_word_list[i][0]]
-    lis.extend(list (L))
-    lis.pop()
-    L = np.array(lis)
-    output[j] = L
-    i+=1
-  [max_acc,max_output] =  calc_acc(config.beam_size,output,one_hot2)
-  conf_output = np.array(max_output).reshape((-1,))
-  conf_true = np.array(one_hot2).reshape((-1,))
-  L = []
-  for i in range(tel_word_list.shape[2]):
-    L.append(num_dict_telugu[i])
-  to_dump = []
-  column_values = ['English word', 'Telugu true word', 'Telugu predicted word']
-  tel_preds = []
-  cols = []
-  for i in range(len(max_output)):
-    s1 = eng_words[i].strip()
-    s2 = tel_words[i].strip()
-    L = [s1,s2]
-    s = ""
-    for j in max_output[i]:
-      s+=num_dict_telugu[j]
-    s = s.strip()
-    L.append(s)
-    cols.append(L)
-  cols = np.array(cols)
-  df = pd.DataFrame(data = cols,columns = column_values)
-  op = df.to_markdown(tablefmt="grid")
-  op2 = df.to_csv()
-  f = open("predictions_attention.md", "w")
-  f.write(op)
-  f.close()
-  f = open("predictions_attention.csv", "w", encoding='utf-8')
-  f.write(op2)
-  f.close()
-  return max_acc
-
-def predict(model,word_embed,tel_word_list,num_dict_telugu,eng_words,config,list_L,char_dict_english,tel_words):
+def get_heatmap(model,word_embed,tel_word_list,num_dict_telugu,eng_words,config,list_L,char_dict_english,output_list,tel_words):
   [decoder_model,encoder_model,model3] = list_L
-  output_list = np.zeros((tel_word_list.shape[0],tel_word_list.shape[1],tel_word_list.shape[2]))
-  [output1,encoder_states] = encoder_model.predict(np.array(word_embed))
-  target_seq = np.zeros((tel_word_list.shape[0],1,tel_word_list.shape[2]))
-  for i in range(tel_word_list.shape[1]):
-    [decoder_outputs,decoder_states,L] = decoder_model.predict([target_seq,output1] + encoder_states)
-    encoder_states = decoder_states
-    target_seq[:,0] = decoder_outputs[:,0]
-    output_list[:,i] = decoder_outputs[:,0]
-  return output_list
+  samples = [100,200,300,400,600,1200,1600,1800,2000,2400]
+  samples.extend([624,690,835,1068,1559,1733,1933,2227,2330,2627,2678,2676,2751,2915,3134,3352,3366,3598,3612,3820,4013,4557,4794,5547])
+  for it in samples:
+    print("English Word :",eng_words[it].strip())
+    print("Telugu Actual :",tel_words[it].strip())
+    s = ""
+    for i in range(len(output_list[it])):
+      s = s+(num_dict_telugu[np.argmax(output_list[it][i])])
+    [output1,encoder_states] = encoder_model.predict(np.array([word_embed[it]]))
+    list_p = np.zeros(word_embed.shape[1])
+    list_p[0] = 1.0
+    L = []
+    for i in range(tel_word_list.shape[1]):
+      target_seq = np.zeros((1,1,tel_word_list.shape[2]))
+      [decoder_outputs,decoder_states,l] = decoder_model.predict([target_seq,output1] + encoder_states)
+      encoder_states = decoder_states
+      l = list(l[0][0])
+      m = l[0]
+      l.pop(0)
+      l.pop(0)
+      l.append(m)
+      l.append(0)
+      target_seq[:,0] = decoder_outputs[:,0]
+      L.append(l)
+    L.pop()
+    L = np.array(L)
+    lis = []
+    true = eng_words[it]
+    true_list = []
+    true_list.extend(list(true)[1:])
+    true_list[len(true_list)-1] = 'end'
+    pred_list = []
+    s = s.strip()
+    print("Telugu Predicted :",s)
+    pred_list.extend(list(s))
+    pred_list.append('end')
+    lis = np.array(L[:len(pred_list),:len(true_list)])
+    plot_attention(lis,pred_list,true_list,it)
+    for i in range(len(pred_list)):
+      format_chars(true_list,lis[i],pred_list[i],i+1)
 
 def calc_acc(beam_size,output,one_hot2):
   max_acc = 0.0
@@ -502,6 +377,10 @@ def beam_search_decoder(data, k):
 		# select k best
 		sequences = ordered[:k]
 	return sequences
+
+
+
+
 
 def get_model(config,eng_vocab_length,tel_vocab_length,num_words):
   inputs = keras.Input(shape=(None,config.input_size))
@@ -616,6 +495,41 @@ def get_model(config,eng_vocab_length,tel_vocab_length,num_words):
   decoder_model = keras.Model([decoder_inputs,output1] + decoder_ip_states, [decoder_outputs,decoder_states,L])
   return [decoder_model,encoder_model,model]
 
+
+
+from matplotlib.colors import LinearSegmentedColormap
+import matplotlib.pyplot as plt
+def grayscale_cmap(cmap):
+    """Return a grayscale version of the given colormap"""
+    cmap = plt.cm.get_cmap(cmap)
+    colors = cmap(np.arange(cmap.N))
+    RGB_weight = [0.299, 0.587, 0.114]
+    luminance = np.sqrt(np.dot(colors[:, :3] ** 2, RGB_weight))
+    colors[:, :3] = luminance[:, np.newaxis]
+        
+    return LinearSegmentedColormap.from_list(cmap.name + "_gray", colors, cmap.N)
+
+
+
+def view_colormap(cmap):
+    """Plot a colormap with its grayscale equivalent"""
+    cmap = plt.cm.get_cmap(cmap)
+    colors = cmap(np.arange(cmap.N))
+    
+    cmap = grayscale_cmap(cmap)
+    grayscale = cmap(np.arange(cmap.N))
+    
+    fig, ax = plt.subplots(1, figsize=(6, 1),
+                           subplot_kw=dict(xticks=[], yticks=[]))
+    ax.imshow([colors], extent=[0, 10, 0, 1])
+    #ax[1].imshow([grayscale], extent=[0, 10, 0, 1])
+
+view_colormap('gray')
+view_colormap('Reds')
+
+
+
+
 sweep_config = {
     'method' : 'grid',
     'metric': {
@@ -668,3 +582,9 @@ def sweep_train():
   do_run(config)
 
 wandb.agent(sweep_id, sweep_train)
+
+
+
+
+
+
