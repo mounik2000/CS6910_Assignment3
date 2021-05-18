@@ -20,7 +20,6 @@ from matplotlib import font_manager as fm, rcParams
 import os
 import pandas as pd
 import matplotlib
-
 def do_run(config):
   test_path = '/content/drive/MyDrive/te.translit.sampled.test.tsv'
   val_path = '/content/drive/MyDrive/te.translit.sampled.dev.tsv'
@@ -103,11 +102,225 @@ def do_run(config):
     output_list.append(L)
   output_list = np.array(output_list)
   model.compile(loss = 'categorical_crossentropy', optimizer=optimizers.Adam(), metrics=['accuracy'])
-  h = model.fit([word_embed, tel_word_list],output_list,batch_size=32,epochs=1,shuffle = True,callbacks = [WandbCallback()])
+  h = model.fit([word_embed, tel_word_list],output_list,batch_size=32,epochs=20,shuffle = True,callbacks = [WandbCallback()])
   details = [char_dict_telugu,char_dict_english,max_tel_len,max_eng_len,tel_vocab_length,eng_vocab_length,num_dict_telugu,config]
   acc = get_acc(model,val_path,config,model2,details,[decoder_model,encoder_model,model])
   wandb.log({'test_accuracy': acc})
   return
+
+def draw_confusion_matrix(y_pred, y_true, classes) :
+  conf_matrix = confusion_matrix(y_pred, y_true, labels=range(len(classes)))
+  #getting diagonal elements
+  conf_diagonal_matrix = np.eye(len(conf_matrix)) * conf_matrix
+  np.fill_diagonal(conf_matrix, 0)
+  conf_matrix = conf_matrix.astype('float')
+  n_confused = np.sum(conf_matrix)
+  conf_matrix[conf_matrix == 0] = np.nan
+  #giving red shades to non diagonal elements
+  conf_matrix = go.Heatmap({'coloraxis': 'coloraxis1', 'x': classes, 'y': classes, 'z': conf_matrix, 'hoverongaps':False, 'hovertemplate': 'Predicted %{y}<br>Instead of %{x}<br>On %{z} examples<extra></extra>'})
+  conf_diagonal_matrix = conf_diagonal_matrix.astype('float')
+  n_right = np.sum(conf_diagonal_matrix)
+  conf_diagonal_matrix[conf_diagonal_matrix == 0] = np.nan
+  #giving green shade to diagonal elements
+  conf_diagonal_matrix = go.Heatmap({'coloraxis': 'coloraxis2', 'x': classes, 'y': classes, 'z': conf_diagonal_matrix,'hoverongaps':False, 'hovertemplate': 'Predicted %{y} just right<br>On %{z} examples<extra></extra>'})
+  fig = go.Figure((conf_diagonal_matrix, conf_matrix))
+  transparent = 'rgba(0, 0, 0, 0)'
+  n_total = n_right + n_confused
+  fig.update_layout({'coloraxis1': {'colorscale': [[0, transparent], [0, 'rgba(180, 0, 0, 0.05)'], [1, f'rgba(180, 0, 0, {max(0.2, (n_confused/n_total) ** 0.5)})']], 'showscale': False}})
+  fig.update_layout({'coloraxis2': {'colorscale': [[0, transparent], [0, f'rgba(0, 180, 0, {min(0.8, (n_right/n_total) ** 2)})'], [1, 'rgba(0, 180, 0, 1)']], 'showscale': False}})
+  xaxis = {'title':{'text':'y_true'}, 'showticklabels':False}
+  yaxis = {'title':{'text':'y_pred'}, 'showticklabels':False}
+  fig.update_layout(title={'text':'Confusion matrix', 'x':0.5}, paper_bgcolor=transparent, plot_bgcolor=transparent, xaxis=xaxis, yaxis=yaxis)
+  wandb.log({'Heat Map Confusion Matrix': wandb.data_types.Plotly(fig)})
+  return 0
+
+def get_acc(model,val_path,config,model2,details,list_L):
+  [char_dict_telugu,char_dict_english,max_tel_len,max_eng_len,tel_vocab_length,eng_vocab_length,num_dict_telugu,config] = details
+  fd = open(val_path, 'r')
+  num1 = 1
+  num2 = 1
+  tel_words = []
+  eng_words = []
+  while True:
+      string = fd.readline()
+      if not string:
+          break
+      else:
+        l = string.split()
+        tel_word = l[0]
+        eng_word = l[1]
+        tel_word = '\t'+tel_word+'\t'
+        eng_word = '\t'+eng_word+'\t'
+        tel_words.append(tel_word)
+        eng_words.append(eng_word)
+  fd.close()
+  tel_word_list = []
+  for word in tel_words:
+    i = 0
+    L = np.zeros((max_tel_len,tel_vocab_length))
+    for char in word:
+      L[i][char_dict_telugu[char]] = 1
+      i+=1
+    while i < max_tel_len:
+      L[i][char_dict_telugu[" "]] = 1
+      i+=1
+    tel_word_list.append(L)
+  tel_word_list = np.array(tel_word_list)
+  one_hot = []
+  for word in eng_words:
+    i = 0
+    L = np.zeros(max_eng_len)
+    for char in word:
+      L[i] = char_dict_english[char]
+      i+=1
+    while i < max_eng_len:
+      L[i] = char_dict_english[" "]
+      i+=1
+    one_hot.append(L)
+  one_hot = np.array(one_hot)
+  word_embed = model2.predict(one_hot)
+  one_hot2 = []
+  for word in tel_words:
+    i = 0
+    L = np.zeros(max_tel_len)
+    for char in word:
+      L[i] = char_dict_telugu[char]
+      i+=1
+    while i < max_tel_len:
+      L[i] = char_dict_telugu[" "]
+      i+=1
+    one_hot2.append(L)
+  one_hot2 = np.array(one_hot2)
+  output = predict(model,word_embed,tel_word_list,num_dict_telugu,eng_words,config,list_L,char_dict_english,tel_words)
+  i = 0
+  for j in range(len(output)):
+    L = output[j]
+    lis = [tel_word_list[i][0]]
+    lis.extend(list (L))
+    lis.pop()
+    L = np.array(lis)
+    output[j] = L
+    i+=1
+  [max_acc,max_output] =  calc_acc(config.beam_size,output,one_hot2)
+  conf_output = np.array(max_output).reshape((-1,))
+  conf_true = np.array(one_hot2).reshape((-1,))
+  L = []
+  for i in range(tel_word_list.shape[2]):
+    L.append(num_dict_telugu[i])
+  q = draw_confusion_matrix(conf_output, conf_true,L)
+  wandb.log({"Confusion Matrix" : wandb.plot.confusion_matrix(preds=conf_output,y_true=conf_true,class_names=L)})
+  print(max_acc)
+  to_dump = []
+  column_values = ['English word', 'Telugu true word', 'Telugu predicted word']
+  tel_preds = []
+  cols = []
+  for i in range(len(max_output)):
+    s1 = eng_words[i].strip()
+    s2 = tel_words[i].strip()
+    L = [s1,s2]
+    s = ""
+    for j in max_output[i]:
+      s+=num_dict_telugu[j]
+    s = s.strip()
+    L.append(s)
+    cols.append(L)
+  cols = np.array(cols)
+  df = pd.DataFrame(data = cols,columns = column_values)
+  op = df.to_markdown(tablefmt="grid")
+  op2 = df.to_csv()
+  f = open("predictions_attention.md", "w")
+  f.write(op)
+  f.close()
+  f = open("predictions_attention.csv", "w", encoding='utf-8')
+  f.write(op2)
+  f.close()
+  return max_acc
+
+def predict(model,word_embed,tel_word_list,num_dict_telugu,eng_words,config,list_L,char_dict_english,tel_words):
+  [decoder_model,encoder_model,model3] = list_L
+  output_list = np.zeros((tel_word_list.shape[0],tel_word_list.shape[1],tel_word_list.shape[2]))
+  [output1,encoder_states] = encoder_model.predict(np.array(word_embed))
+  target_seq = np.zeros((tel_word_list.shape[0],1,tel_word_list.shape[2]))
+  for i in range(tel_word_list.shape[1]):
+    [decoder_outputs,decoder_states,L] = decoder_model.predict([target_seq,output1] + encoder_states)
+    encoder_states = decoder_states
+    target_seq[:,0] = decoder_outputs[:,0]
+    output_list[:,i] = decoder_outputs[:,0]
+  return output_list
+
+def calc_acc(beam_size,output,one_hot2):
+  max_acc = 0.0
+  max_output = []
+  for beam in range(beam_size):
+    Result = []
+    for i in range(len(output)):
+      seq = beam_search_decoder(output[i], beam_size)
+      Result.append(seq[beam][0])
+    acc = 0.0
+    for i in range(one_hot2.shape[0]):
+      acc2 = 0.0
+      c = 0
+      for j in range(one_hot2.shape[1]):
+        p = Result[i][j]
+        if (p == one_hot2[i][j] and p > 0) :
+          acc2+= 1
+        if (not (one_hot2[i][j] == 0)):
+          c+=1
+      acc2/=c
+      acc+=acc2
+    acc /= one_hot2.shape[0]
+    if max_acc <= acc:
+      max_acc = acc
+      max_output = Result
+  print("acc = "+str(max_acc))
+  max_acc2 = 0.0
+  max_output2 = []
+  for beam in range(beam_size):
+    Result = []
+    for i in range(len(output)):
+      seq = beam_search_decoder(output[i], beam_size)
+      Result.append(seq[beam][0])
+    acc = 0.0
+    for i in range(one_hot2.shape[0]):
+      c = 0
+      for j in range(one_hot2.shape[1]):
+        p = Result[i][j]
+        if (p == one_hot2[i][j]) :
+          c+=1
+      if (c == one_hot2.shape[1]):
+        acc+=1
+    acc /= one_hot2.shape[0]
+    if max_acc2 <= acc:
+      max_acc2 = acc
+      max_output2 = Result
+  print("word acc = "+str(max_acc2))
+  return [max_acc2,max_output2]
+
+
+# Directly taken from https://machinelearningmastery.com/beam-search-decoder-natural-language-processing/
+def beam_search_decoder(data, k):
+	sequences = [[list(), 0.0]]
+	# walk over each step in sequence
+	for row in data:
+		all_candidates = list()
+		# expand each current candidate
+		for i in range(len(sequences)):
+			seq, score = sequences[i]
+			for j in range(len(row)):
+				if (row[j]<=0):
+					candidate = [seq + [j], score +50]
+				else:
+					candidate = [seq + [j], score - math.log(row[j])]
+				all_candidates.append(candidate)
+		# order all candidates by score
+		ordered = sorted(all_candidates, key=lambda tup:tup[1])
+		# select k best
+		sequences = ordered[:k]
+	return sequences
+
+
+
+
 
 def get_acc(model,val_path,config,model2,details,list_L):
   [char_dict_telugu,char_dict_english,max_tel_len,max_eng_len,tel_vocab_length,eng_vocab_length,num_dict_telugu,config] = details
