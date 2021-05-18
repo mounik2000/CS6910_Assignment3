@@ -203,6 +203,77 @@ def predict(model,word_embed,tel_word_list,num_dict_telugu,eng_words,config,list
     s = s+(num_dict_telugu[np.argmax(output_list[1][i])])
   return output_list
 
+     
+def calc_acc(beam_size,output,one_hot2):
+  max_acc = 0.0
+  max_output = []
+  for beam in range(beam_size):
+    Result = []
+    for i in range(len(output)):
+      seq = beam_search_decoder(output[i], beam_size)
+      Result.append(seq[beam][0])
+    acc = 0.0
+    for i in range(one_hot2.shape[0]):
+      acc2 = 0.0
+      c = 0
+      for j in range(one_hot2.shape[1]):
+        p = Result[i][j]
+        if (p == one_hot2[i][j] and p > 0) :
+          acc2+= 1
+        if (not (one_hot2[i][j] == 0)):
+          c+=1
+      acc2/=c
+      acc+=acc2
+    acc /= one_hot2.shape[0]
+    if max_acc <= acc:
+      max_acc = acc
+      max_output = Result
+  print("acc = "+str(max_acc))
+  max_acc2 = 0.0
+  max_output2 = []
+  for beam in range(beam_size):
+    Result = []
+    for i in range(len(output)):
+      seq = beam_search_decoder(output[i], beam_size)
+      Result.append(seq[beam][0])
+    acc = 0.0
+    for i in range(one_hot2.shape[0]):
+      c = 0
+      for j in range(one_hot2.shape[1]):
+        p = Result[i][j]
+        if (p == one_hot2[i][j]) :
+          c+=1
+      if (c == one_hot2.shape[1]):
+        acc+=1
+    acc /= one_hot2.shape[0]
+    if max_acc2 <= acc:
+      max_acc2 = acc
+      max_output2 = Result
+  print("word acc = "+str(max_acc2))
+  return [max_acc2,max_output2]
+
+
+
+# Directly taken from https://machinelearningmastery.com/beam-search-decoder-natural-language-processing/
+def beam_search_decoder(data, k):
+	sequences = [[list(), 0.0]]
+	# walk over each step in sequence
+	for row in data:
+		all_candidates = list()
+		# expand each current candidate
+		for i in range(len(sequences)):
+			seq, score = sequences[i]
+			for j in range(len(row)):
+				if (row[j]<=0):
+					candidate = [seq + [j], score +50]
+				else:
+					candidate = [seq + [j], score - math.log(row[j])]
+				all_candidates.append(candidate)
+		# order all candidates by score
+		ordered = sorted(all_candidates, key=lambda tup:tup[1])
+		# select k best
+		sequences = ordered[:k]
+	return sequences
 
 
 def get_model(config,eng_vocab_length,tel_vocab_length,num_words):
