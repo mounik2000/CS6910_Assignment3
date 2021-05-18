@@ -21,11 +21,32 @@ import os
 import pandas as pd
 import matplotlib
 
+import matplotlib.colors as mcolors
+from matplotlib import cm
+import numpy as np
+
+from IPython.core.display import display, HTML
+
+#display characters as cmaps, used for visualizations (Red CMAP for visualization)
+def format_chars(chars,numbers,character,number):
+    numbers = np.array(numbers).astype(float)
+    norm = mcolors.Normalize(vmin=0, vmax=1)
+    cmap = cm.Reds
+    colors = cmap(norm(numbers))
+    hexcolor = [mcolors.to_hex(c) for c in colors]
+    letter = lambda x: "<span style='color:{};'>{}</span>".format(x[1],x[0])
+    #letter = lambda (c,l): "<span style='color:{};'>{}</span>".format(l,c)
+    text = " ".join(list(map(letter, zip(chars,hexcolor))))
+    text = "<div style='font-size:14pt;font-weight:italic;'> " + '<pre>'+"Output Charater "+str(number)+": "+character+', Input Visualization: ' + text + "</div>"
+    display(HTML(text))
+    return colors
+
+#training similar to that of transliteration.py
 
 def do_run(config):
-  test_path = '/content/drive/MyDrive/te.translit.sampled.test.tsv'
-  val_path = '/content/drive/MyDrive/te.translit.sampled.dev.tsv'
-  train_path = '/content/drive/MyDrive/te.translit.sampled.train.tsv'
+  test_path = 'te.translit.sampled.test.tsv'
+  val_path = 'te.translit.sampled.dev.tsv'
+  train_path = 'te.translit.sampled.train.tsv'
   char_dict_english = {' ': 0}
   char_dict_telugu = {' ': 0}
   num_dict_telugu = {0: ' '}
@@ -110,6 +131,8 @@ def do_run(config):
   wandb.log({'test_accuracy': acc})
   return
 
+
+#drawing confusion matrix. Same code copied from Assignment 1
 def draw_confusion_matrix(y_pred, y_true, classes) :
   conf_matrix = confusion_matrix(y_pred, y_true, labels=range(len(classes)))
   #getting diagonal elements
@@ -136,6 +159,8 @@ def draw_confusion_matrix(y_pred, y_true, classes) :
   wandb.log({'Heat Map Confusion Matrix': wandb.data_types.Plotly(fig)})
   return 0
 
+
+#calculation of accuracy -> similar to transliteration with test path given as an argument as we need test accuracy
 def get_acc(model,val_path,config,model2,details,list_L):
   [char_dict_telugu,char_dict_english,max_tel_len,max_eng_len,tel_vocab_length,eng_vocab_length,num_dict_telugu,config] = details
   fd = open(val_path, 'r')
@@ -204,6 +229,7 @@ def get_acc(model,val_path,config,model2,details,list_L):
     output[j] = L
     i+=1
   [max_acc,max_output] =  calc_acc(config.beam_size,output,one_hot2)
+  #from here we print confusion matrices
   conf_output = np.array(max_output).reshape((-1,))
   conf_true = np.array(one_hot2).reshape((-1,))
   L = []
@@ -212,6 +238,7 @@ def get_acc(model,val_path,config,model2,details,list_L):
   q = draw_confusion_matrix(conf_output, conf_true,L)
   wandb.log({"Confusion Matrix" : wandb.plot.confusion_matrix(preds=conf_output,y_true=conf_true,class_names=L)})
   print(max_acc)
+  #write all predictions to a csv and markdown file
   to_dump = []
   column_values = ['English word', 'Telugu true word', 'Telugu predicted word']
   tel_preds = []
@@ -230,14 +257,16 @@ def get_acc(model,val_path,config,model2,details,list_L):
   df = pd.DataFrame(data = cols,columns = column_values)
   op = df.to_markdown(tablefmt="grid")
   op2 = df.to_csv()
-  f = open("predictions_attention.md", "w")
+  f = open("predictions.md", "w")
   f.write(op)
   f.close()
-  f = open("predictions_attention.csv", "w", encoding='utf-8')
+  f = open("predictions.csv", "w", encoding='utf-8')
   f.write(op2)
   f.close()
   return max_acc
 
+
+#predict the model
 def predict(model,word_embed,tel_word_list,num_dict_telugu,eng_words,config,list_L,char_dict_english,tel_words):
   [decoder_model,encoder_model,model3] = list_L
   output_list = np.zeros((tel_word_list.shape[0],tel_word_list.shape[1],tel_word_list.shape[2]))
@@ -248,11 +277,13 @@ def predict(model,word_embed,tel_word_list,num_dict_telugu,eng_words,config,list
     encoder_states = decoder_states
     target_seq[:,0] = decoder_outputs[:,0]
     output_list[:,i] = decoder_outputs[:,0]
+  #This is the function to draw heatmaps and visualizations
   get_heatmap(model,word_embed,tel_word_list,num_dict_telugu,eng_words,config,list_L,char_dict_english,output_list,tel_words)
   return output_list
 
+#plottindg attention heatmaps using matplotlib (GREY CMAP for heatmaps)
 def plot_attention(attention,predicted_sentence,sentence,it):
-  fname='/content/drive/MyDrive/Gidugu.ttf'
+  fname='Gidugu.ttf'
   myfont=fm.FontProperties(fname=fname)
   fig = plt.figure(figsize=(10, 10))
   ax = fig.add_subplot(1, 1, 1)
@@ -266,6 +297,9 @@ def plot_attention(attention,predicted_sentence,sentence,it):
 
 
 def get_heatmap(model,word_embed,tel_word_list,num_dict_telugu,eng_words,config,list_L,char_dict_english,output_list,tel_words):
+  if config.attention == 0:
+    return	
+  #if attention is 1, take some random samples and plot attention heatmaps
   [decoder_model,encoder_model,model3] = list_L
   samples = [100,200,300,400,600,1200,1600,1800,2000,2400]
   samples.extend([624,690,835,1068,1559,1733,1933,2227,2330,2627,2678,2676,2751,2915,3134,3352,3366,3598,3612,3820,4013,4557,4794,5547])
@@ -281,8 +315,10 @@ def get_heatmap(model,word_embed,tel_word_list,num_dict_telugu,eng_words,config,
     L = []
     for i in range(tel_word_list.shape[1]):
       target_seq = np.zeros((1,1,tel_word_list.shape[2]))
+      #get attention weights
       [decoder_outputs,decoder_states,l] = decoder_model.predict([target_seq,output1] + encoder_states)
       encoder_states = decoder_states
+      #remove initial tab characters
       l = list(l[0][0])
       m = l[0]
       l.pop(0)
@@ -297,18 +333,28 @@ def get_heatmap(model,word_embed,tel_word_list,num_dict_telugu,eng_words,config,
     true = eng_words[it]
     true_list = []
     true_list.extend(list(true)[1:])
+    #add the end term
     true_list[len(true_list)-1] = 'end'
     pred_list = []
     s = s.strip()
     print("Telugu Predicted :",s)
     pred_list.extend(list(s))
+    #add end term
     pred_list.append('end')
+    #crop the attention weights matrix till end terms only
     lis = np.array(L[:len(pred_list),:len(true_list)])
+    #plot heatmaps
     plot_attention(lis,pred_list,true_list,it)
+    #plot visualizations
     for i in range(len(pred_list)):
       format_chars(true_list,lis[i],pred_list[i],i+1)
 
+
+#function computing accuracy. It returns word accuracy but also prints the character accuracy
+#Implementation similar to that of transliteration.py
+
 def calc_acc(beam_size,output,one_hot2):
+  #for character accuracy computation
   max_acc = 0.0
   max_output = []
   for beam in range(beam_size):
@@ -333,6 +379,7 @@ def calc_acc(beam_size,output,one_hot2):
       max_acc = acc
       max_output = Result
   print("acc = "+str(max_acc))
+  #calculate word accuracy for each beam output
   max_acc2 = 0.0
   max_output2 = []
   for beam in range(beam_size):
@@ -379,9 +426,7 @@ def beam_search_decoder(data, k):
 	return sequences
 
 
-
-
-
+#same function as in transliteration.py for same purpose to return the models
 def get_model(config,eng_vocab_length,tel_vocab_length,num_words):
   inputs = keras.Input(shape=(None,config.input_size))
   decoder_inputs = Input(shape=(None, tel_vocab_length))
@@ -492,43 +537,12 @@ def get_model(config,eng_vocab_length,tel_vocab_length,num_words):
     decoder_combined_context = outputs
   decoder_outputs = dropout(decoder_combined_context)
   decoder_outputs = decoder_dense(decoder_outputs)
+  #We also add attention outputs for plotting the heatmaps
   decoder_model = keras.Model([decoder_inputs,output1] + decoder_ip_states, [decoder_outputs,decoder_states,L])
   return [decoder_model,encoder_model,model]
 
 
-
-from matplotlib.colors import LinearSegmentedColormap
-import matplotlib.pyplot as plt
-def grayscale_cmap(cmap):
-    """Return a grayscale version of the given colormap"""
-    cmap = plt.cm.get_cmap(cmap)
-    colors = cmap(np.arange(cmap.N))
-    RGB_weight = [0.299, 0.587, 0.114]
-    luminance = np.sqrt(np.dot(colors[:, :3] ** 2, RGB_weight))
-    colors[:, :3] = luminance[:, np.newaxis]
-        
-    return LinearSegmentedColormap.from_list(cmap.name + "_gray", colors, cmap.N)
-
-
-
-def view_colormap(cmap):
-    """Plot a colormap with its grayscale equivalent"""
-    cmap = plt.cm.get_cmap(cmap)
-    colors = cmap(np.arange(cmap.N))
-    
-    cmap = grayscale_cmap(cmap)
-    grayscale = cmap(np.arange(cmap.N))
-    
-    fig, ax = plt.subplots(1, figsize=(6, 1),
-                           subplot_kw=dict(xticks=[], yticks=[]))
-    ax.imshow([colors], extent=[0, 10, 0, 1])
-    #ax[1].imshow([grayscale], extent=[0, 10, 0, 1])
-
-view_colormap('gray')
-view_colormap('Reds')
-
-
-
+#setting sweeps for the best models
 
 sweep_config = {
     'method' : 'grid',
@@ -538,7 +552,7 @@ sweep_config = {
     },
     'parameters': {
         'attention' : {
-            'values' : [1]
+            'values' : [0,1]
         },
         'input_size' : {
             'values' : [128]
@@ -564,7 +578,9 @@ sweep_config = {
     },
 }
 
-sweep_id = wandb.sweep(sweep_config, entity="mounik2000", project="A3 TestTime with Attention")
+#get a sweep id
+
+sweep_id = wandb.sweep(sweep_config, entity="mounik2000", project="A3 TestTime check")
 
 def sweep_train():
   config_defaults = {
@@ -581,10 +597,5 @@ def sweep_train():
   config = wandb.config
   do_run(config)
 
+#run an agent for the sweep
 wandb.agent(sweep_id, sweep_train)
-
-
-
-
-
-
