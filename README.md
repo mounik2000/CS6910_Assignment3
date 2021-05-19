@@ -38,7 +38,7 @@ It is _**highly recommended**_ to run the code in presence of a GPU with faster 
 
 ### To run the script ###
 
-Run the command - _**test_time.py**_ (Using python 3.x only) in your terminal or execute the cell in the notebook (if colab or jupyter is used.)
+Run the command - _**python test_time.py**_ (Using python 3.x only) in your terminal or execute the cell in the notebook (if colab or jupyter is used.)
 
 ## Acknowledgements ##
 
